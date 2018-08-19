@@ -1,3 +1,6 @@
+* shell code 생성을 위해 shell.c 코드를 이용하여 execve() 호출이 어떤 방식으로 동작하여 shell을 최종적으로 실행해주는지 분석해본다. 
+
+1. main 함수 호출 이전 call sequence 확인
 
 (gdb) b _start
 Breakpoint 1 at 0x8048736
@@ -9,8 +12,6 @@ Breakpoint 3 at 0x80488b0
 Breakpoint 4 at 0x80492e0
 (gdb) b *main
 Breakpoint 5 at 0x804887c
-(gdb) i r
-The program has no registers now.
 (gdb) i b
 Num     Type           Disp Enb Address    What
 1       breakpoint     keep y   0x08048736 <_start>
@@ -18,8 +19,6 @@ Num     Type           Disp Enb Address    What
 3       breakpoint     keep y   0x080488b0 <generic_start_main>
 4       breakpoint     keep y   0x080492e0 <__libc_csu_init>
 5       breakpoint     keep y   0x0804887c <main>
-(gdb) 
-
 (gdb) r
 Starting program: /home/guybrush/Project/github/hack/shellcode/shell 
 
@@ -59,22 +58,28 @@ Breakpoint 5, 0x0804887c in main ()
 (gdb) 
 
 
-Breakpoint 5, 0x0804887c in main ()
-(gdb) bt
-#0  0x0804887c in main ()
+2. 앞서 확인한 함수들의 위치가 0x08048000 ~ 0x080e9000 사이에 위치하므로 모두 code section에 위치함을 메모리맵을 통해 확인할 수 있다.
+
 (gdb) shell ps -a
   PID TTY          TIME CMD
-26058 pts/2    00:00:00 gdb
-26072 pts/2    00:00:00 shell
-26082 pts/2    00:00:00 ps
-(gdb) shell cat /proc/26072/maps
-08048000-080e9000 r-xp 00000000 103:07 6686131                           /home/guybrush/Project/github/hack/shellcode/shell
-080e9000-080eb000 rw-p 000a0000 103:07 6686131                           /home/guybrush/Project/github/hack/shellcode/shell
+ 8538 pts/2    00:00:00 gdb
+ 8573 pts/2    00:00:00 shell
+ 8605 pts/2    00:00:00 ps
+
+(gdb) shell cat /proc/8573/maps
+08048000-080e9000 r-xp 00000000 103:07 6687804                           /home/guybrush/Project/github/hack/shellcode/shell
+080e9000-080eb000 rw-p 000a0000 103:07 6687804                           /home/guybrush/Project/github/hack/shellcode/shell
 080eb000-0810e000 rw-p 00000000 00:00 0                                  [heap]
 f7ff9000-f7ffc000 r--p 00000000 00:00 0                                  [vvar]
 f7ffc000-f7ffe000 r-xp 00000000 00:00 0                                  [vdso]
 fffdd000-ffffe000 rw-p 00000000 00:00 0                                  [stack]
-(gdb) disassemble main
+
+
+3. main 함수 호출 직후 esp 레지스터에 저장된 값(return address)은 이전 함수의 리턴 address를 의미하므로,
+   이 값을 확인해보면, generic_start_main()에서 main() 을 호출했음을 확인할 수 있다.
+   => 즉, main 함수 리턴 시 generic_start_main() 함수로 제어권이 넘어감
+
+(gdb) disassemble
 Dump of assembler code for function main:
 => 0x0804887c <+0>:	push   ebp
    0x0804887d <+1>:	mov    ebp,esp
@@ -91,9 +96,10 @@ Dump of assembler code for function main:
    0x080488a8 <+44>:	leave  
    0x080488a9 <+45>:	ret    
 End of assembler dump.
+
 (gdb) i r
 eax            0x804887c	134514812
-ecx            0x1fb493c	33245500
+ecx            0xbbd6215a	-1143594662
 edx            0xffffce14	-12780
 ebx            0x80481a8	134513064
 esp            0xffffcdec	0xffffcdec
@@ -110,67 +116,28 @@ fs             0x0	0
 gs             0x63	99
 (gdb) 
 
-
-(gdb) disassemble main
-Dump of assembler code for function main:
-=> 0x0804887c <+0>:	push   ebp
-   0x0804887d <+1>:	mov    ebp,esp
-   0x0804887f <+3>:	sub    esp,0x8
-   0x08048882 <+6>:	mov    DWORD PTR [ebp-0x8],0x80bae08
-   0x08048889 <+13>:	mov    DWORD PTR [ebp-0x4],0x0
-   0x08048890 <+20>:	push   0x0
-   0x08048892 <+22>:	lea    eax,[ebp-0x8]
-   0x08048895 <+25>:	push   eax
-   0x08048896 <+26>:	push   0x80bae0b
-   0x0804889b <+31>:	call   0x806c740 <execve>
-   0x080488a0 <+36>:	add    esp,0xc
-   0x080488a3 <+39>:	mov    eax,0x0
-   0x080488a8 <+44>:	leave  
-   0x080488a9 <+45>:	ret    
-End of assembler dump.
-(gdb) i r
-eax            0x804887c	134514812
-ecx            0x1fb493c	33245500
-edx            0xffffce14	-12780
-ebx            0x80481a8	134513064
-esp            0xffffcdec	0xffffcdec
-ebp            0x1000	0x1000
-esi            0x80ea00c	135176204
-edi            0x8e	142
-eip            0x804887c	0x804887c <main>
-eflags         0x246	[ PF ZF IF ]
-cs             0x23	35
-ss             0x2b	43
-ds             0x2b	43
-es             0x2b	43
-fs             0x0	0
-gs             0x63	99
-(gdb) 
-eax            0x804887c	134514812
-ecx            0x1fb493c	33245500
-edx            0xffffce14	-12780
-ebx            0x80481a8	134513064
-esp            0xffffcdec	0xffffcdec
-ebp            0x1000	0x1000
-esi            0x80ea00c	135176204
-edi            0x8e	142
-eip            0x804887c	0x804887c <main>
-eflags         0x246	[ PF ZF IF ]
-cs             0x23	35
-ss             0x2b	43
-ds             0x2b	43
-es             0x2b	43
-fs             0x0	0
-gs             0x63	99
 (gdb) x/x $esp
 0xffffcdec:	0x08048ad1
 (gdb) x/x 0x08048ad1
 0x8048ad1 <generic_start_main+545>:	0x8310c483
-(gdb) 
 
-(gdb) disassemble main
+
+4. 0x80bae08 주소의 string 값 확인 결과 code section에 상수 문자열이 저장되어 있음을 확인할 수 있다.
+
+(gdb) x/2s 0x80bae08
+0x80bae08:	"sh"
+0x80bae0b:	"/bin/sh"
+
+
+5. execve 호출 후 return address 확인
+   => execve 호출직 후 esp 값을 확인해 보면, main 함수에서 call execve 후에 실행될 주소인 0x080488a0(add esp, 0xc)임을 확인할 수 있다.
+      즉, execve 호출이 종료되면, stack에서 0x080488a0 값을 꺼내 eip 레지스터에 저장하고 다음에 이 주소의 명령어가 실행된다.
+      즉, main 함수로 제어권이 넘어와 execve 호출 다음의 코드가 실행됨
+
+0x0804889b in main ()
+(gdb) disassemble 
 Dump of assembler code for function main:
-=> 0x0804887c <+0>:	push   ebp
+   0x0804887c <+0>:	push   ebp
    0x0804887d <+1>:	mov    ebp,esp
    0x0804887f <+3>:	sub    esp,0x8
    0x08048882 <+6>:	mov    DWORD PTR [ebp-0x8],0x80bae08
@@ -179,28 +146,256 @@ Dump of assembler code for function main:
    0x08048892 <+22>:	lea    eax,[ebp-0x8]
    0x08048895 <+25>:	push   eax
    0x08048896 <+26>:	push   0x80bae0b
-   0x0804889b <+31>:	call   0x806c740 <execve>
+=> 0x0804889b <+31>:	call   0x806c740 <execve>
    0x080488a0 <+36>:	add    esp,0xc
    0x080488a3 <+39>:	mov    eax,0x0
    0x080488a8 <+44>:	leave  
    0x080488a9 <+45>:	ret    
 End of assembler dump.
-(gdb) x/2s 0x80bae08
-0x80bae08:	"sh"
-0x80bae0b:	"/bin/sh"
-(gdb) disassemble execve
+(gdb) si
+0x0806c740 in execve ()
+(gdb) x/x $esp
+0xffffcdd0:	0xa0
+(gdb) x/4x $esp
+0xffffcdd0:	0xa0	0x88	0x04	0x08
+(gdb) 
+
+
+6. system call 호출을 위해 eax, ebx, ecx, edx 레지스터에 system call number와 parameter를 저장한다.
+
+0x0806c752 in execve ()
+(gdb) disassemble 
 Dump of assembler code for function execve:
    0x0806c740 <+0>:	push   ebx
    0x0806c741 <+1>:	mov    edx,DWORD PTR [esp+0x10]
    0x0806c745 <+5>:	mov    ecx,DWORD PTR [esp+0xc]
    0x0806c749 <+9>:	mov    ebx,DWORD PTR [esp+0x8]
    0x0806c74d <+13>:	mov    eax,0xb
-   0x0806c752 <+18>:	call   DWORD PTR ds:0x80ea9f0
+=> 0x0806c752 <+18>:	call   DWORD PTR ds:0x80ea9f0
    0x0806c758 <+24>:	pop    ebx
    0x0806c759 <+25>:	cmp    eax,0xfffff001
    0x0806c75e <+30>:	jae    0x8070620 <__syscall_error>
    0x0806c764 <+36>:	ret    
 End of assembler dump.
+(gdb) si
+0xf7ffcfe0 in __kernel_vsyscall ()
+(gdb) x/4x $esp
+0xffffcdc8:	0x58	0xc7	0x06	0x08
 (gdb) 
+0xffffcdcc:	0xa8	0x81	0x04	0x08
+(gdb) disassemble *0xf7ffcfe0
+No function contains specified address.
+(gdb) disassemble 
+Dump of assembler code for function __kernel_vsyscall:
+=> 0xf7ffcfe0 <+0>:	push   ecx
+   0xf7ffcfe1 <+1>:	push   edx
+   0xf7ffcfe2 <+2>:	push   ebp
+   0xf7ffcfe3 <+3>:	mov    ebp,esp
+   0xf7ffcfe5 <+5>:	sysenter 
+   0xf7ffcfe7 <+7>:	int    0x80
+   0xf7ffcfe9 <+9>:	pop    ebp
+   0xf7ffcfea <+10>:	pop    edx
+   0xf7ffcfeb <+11>:	pop    ecx
+   0xf7ffcfec <+12>:	ret    
+End of assembler dump.
+(gdb) disassemble *0x80ea9f0
+No function contains specified address.
+(gdb) disassemble 0x80ea9f0
+Dump of assembler code for function _dl_sysinfo:
+   0x080ea9f0 <+0>:	loopne 0x80ea9c1 <_dl_load_write_lock+1>
+   0x080ea9f2 <+2>:	push   edi
+End of assembler dump.
+(gdb) disassemble ds:0x80ea9f0
+No symbol table is loaded.  Use the "file" command.
+(gdb) disassemble *ds:0x80ea9f0
+No symbol table is loaded.  Use the "file" command.
+(gdb) 
+
+
+
+* 분석 결과를 바탕으로, shell.c와 동일한 동작을 수행할 수 있는 최소화된 assembly code를 작성한다.
+  => pseudo_asm_codes.txt 참고
+
+ 
+
+* 완성된 코드 테스트
+
+1. -Wl,--omagic 컴파일 옵션 사용하지 않을 경우 
+   => 위의 분석과정을 통해 생성한 assembly code는 code section 영역에 execve 호출을 위한 파라미터 값을 write 하는 방식으로 동작하고 있는데,
+      기본적으로 code section은 아래 확인 결과처럼, write permission이 허용되지 않는다.
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o asm_shell_x86_intel asm_shell_x86_intel.c -m32 -masm=intel -fno-stack-protector -mpreferred-stack-boundary=2
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ readelf -S asm_shell_x86_intel
+There are 31 section headers, starting at offset 0x17c8:
+
+Section Headers:
+  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+  [ 1] .interp           PROGBITS        08048154 000154 000013 00   A  0   0  1
+  [ 2] .note.ABI-tag     NOTE            08048168 000168 000020 00   A  0   0  4
+  [ 3] .note.gnu.build-i NOTE            08048188 000188 000024 00   A  0   0  4
+  [ 4] .gnu.hash         GNU_HASH        080481ac 0001ac 000020 04   A  5   0  4
+  [ 5] .dynsym           DYNSYM          080481cc 0001cc 000040 10   A  6   1  4
+  [ 6] .dynstr           STRTAB          0804820c 00020c 000045 00   A  0   0  1
+  [ 7] .gnu.version      VERSYM          08048252 000252 000008 02   A  5   0  2
+  [ 8] .gnu.version_r    VERNEED         0804825c 00025c 000020 00   A  6   1  4
+  [ 9] .rel.dyn          REL             0804827c 00027c 000008 08   A  5   0  4
+  [10] .rel.plt          REL             08048284 000284 000008 08  AI  5  24  4
+  [11] .init             PROGBITS        0804828c 00028c 000023 00  AX  0   0  4
+  [12] .plt              PROGBITS        080482b0 0002b0 000020 04  AX  0   0 16
+  [13] .plt.got          PROGBITS        080482d0 0002d0 000008 00  AX  0   0  8
+  [14] .text             PROGBITS        080482e0 0002e0 0001a2 00  AX  0   0 16
+  [15] .fini             PROGBITS        08048484 000484 000014 00  AX  0   0  4
+  [16] .rodata           PROGBITS        08048498 000498 000008 00   A  0   0  4
+  [17] .eh_frame_hdr     PROGBITS        080484a0 0004a0 00002c 00   A  0   0  4
+  [18] .eh_frame         PROGBITS        080484cc 0004cc 0000c0 00   A  0   0  4
+  [19] .init_array       INIT_ARRAY      08049f08 000f08 000004 00  WA  0   0  4
+  [20] .fini_array       FINI_ARRAY      08049f0c 000f0c 000004 00  WA  0   0  4
+  [21] .jcr              PROGBITS        08049f10 000f10 000004 00  WA  0   0  4
+  [22] .dynamic          DYNAMIC         08049f14 000f14 0000e8 08  WA  6   0  4
+  [23] .got              PROGBITS        08049ffc 000ffc 000004 04  WA  0   0  4
+  [24] .got.plt          PROGBITS        0804a000 001000 000010 04  WA  0   0  4
+  [25] .data             PROGBITS        0804a010 001010 000008 00  WA  0   0  4
+  [26] .bss              NOBITS          0804a018 001018 000004 00  WA  0   0  1
+  [27] .comment          PROGBITS        00000000 001018 000035 01  MS  0   0  1
+  [28] .shstrtab         STRTAB          00000000 0016bb 00010a 00      0   0  1
+  [29] .symtab           SYMTAB          00000000 001050 000440 10     30  47  4
+  [30] .strtab           STRTAB          00000000 001490 00022b 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings)
+  I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
+  O (extra OS processing required) o (OS specific), p (processor specific)
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ 
+
+=> .text section의 Flg가 AX로 write permission 없음
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q asm_shell_x86_intel 
+(gdb) start
+Temporary breakpoint 1 at 0x80483de
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel 
+
+Temporary breakpoint 1, 0x080483de in main ()
+(gdb) shell ps -a
+  PID TTY          TIME CMD
+ 9039 pts/2    00:00:00 gdb
+ 9042 pts/2    00:00:00 asm_shell_x86_i
+ 9047 pts/2    00:00:00 ps
+(gdb) shell cat /proc/9042/maps
+08048000-08049000 r-xp 00000000 103:07 1835682                           /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel
+08049000-0804a000 r--p 00000000 103:07 1835682                           /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel
+0804a000-0804b000 rw-p 00001000 103:07 1835682                           /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel
+f7e04000-f7e05000 rw-p 00000000 00:00 0 
+f7e05000-f7fb2000 r-xp 00000000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb2000-f7fb3000 ---p 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb3000-f7fb5000 r--p 001ad000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb5000-f7fb6000 rw-p 001af000 103:07 3538950                           /lib32/libc-2.23.so
+f7fb6000-f7fb9000 rw-p 00000000 00:00 0 
+f7fd4000-f7fd5000 rw-p 00000000 00:00 0 
+f7fd5000-f7fd8000 r--p 00000000 00:00 0                                  [vvar]
+f7fd8000-f7fda000 r-xp 00000000 00:00 0                                  [vdso]
+f7fda000-f7ffc000 r-xp 00000000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffc000-f7ffd000 r--p 00022000 103:07 3538948                           /lib32/ld-2.23.so
+f7ffd000-f7ffe000 rw-p 00023000 103:07 3538948                           /lib32/ld-2.23.so
+fffdd000-ffffe000 rw-p 00000000 00:00 0                                  [stack]
+(gdb) 
+
+=> 실제 gdb를 통해 실행 후 memory map을 통해 확인을 해봐도, code section에는 write permission이 없음을 알 수 있다.(r-xp)
+
+=> 실행결과 code section에 write를 하게되면서 segmentation fault가 발생하게 된다.
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o asm_shell_x86_intel asm_shell_x86_intel.c -m32 -masm=intel -fno-stack-protector -mpreferred-stack-boundary=2
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ ./asm_shell_x86_intel 
+Segmentation fault (core dumped)
+
+
+2. -Wl,--omagic 컴파일 옵션 사용 
+   => 우선 테스트를 위해 code section에 write permission을 설정해줄 수 있는 -Wl,--omagic 컴파일 옵션을 임시로 사용하여 빌드 및 실행을 해본다.
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o asm_shell_x86_intel asm_shell_x86_intel.c -m32 -masm=intel -fno-stack-protector -mpreferred-stack-boundary=2 -static -Wl,--omagic
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ readelf -S asm_shell_x86_intel
+There are 31 section headers, starting at offset 0xafd7c:
+
+Section Headers:
+  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+  [ 1] .note.ABI-tag     NOTE            080480b4 0000b4 000020 00   A  0   0  4
+  [ 2] .note.gnu.build-i NOTE            080480d4 0000d4 000024 00   A  0   0  4
+  [ 3] .rel.plt          REL             080480f8 0000f8 000070 08  AI  0  23  4
+  [ 4] .init             PROGBITS        08048168 000168 000023 00  AX  0   0  4
+  [ 5] .plt              PROGBITS        08048190 000190 0000e0 00  AX  0   0 16
+  [ 6] .text             PROGBITS        08048270 000270 071fec 00 WAX  0   0 16
+  [ 7] __libc_freeres_fn PROGBITS        080ba260 072260 000a6d 00  AX  0   0 16
+  [ 8] __libc_thread_fre PROGBITS        080bacd0 072cd0 00009e 00  AX  0   0 16
+  [ 9] .fini             PROGBITS        080bad70 072d70 000014 00  AX  0   0  4
+  [10] .rodata           PROGBITS        080bada0 072da0 01a88c 00   A  0   0 32
+  [11] __libc_subfreeres PROGBITS        080d562c 08d62c 000028 00   A  0   0  4
+  [12] __libc_atexit     PROGBITS        080d5654 08d654 000004 00   A  0   0  4
+  [13] __libc_thread_sub PROGBITS        080d5658 08d658 000004 00   A  0   0  4
+  [14] .eh_frame         PROGBITS        080d565c 08d65c 0129e4 00   A  0   0  4
+  [15] .gcc_except_table PROGBITS        080e8040 0a0040 0000a1 00   A  0   0  1
+  [16] .tdata            PROGBITS        080e80e4 0a00e4 000010 00 WAT  0   0  4
+  [17] .tbss             NOBITS          080e80f4 0a00f4 000018 00 WAT  0   0  4
+  [18] .init_array       INIT_ARRAY      080e80f4 0a00f4 000008 00  WA  0   0  4
+  [19] .fini_array       FINI_ARRAY      080e80fc 0a00fc 000008 00  WA  0   0  4
+  [20] .jcr              PROGBITS        080e8104 0a0104 000004 00  WA  0   0  4
+  [21] .data.rel.ro      PROGBITS        080e8120 0a0120 000070 00  WA  0   0 32
+  [22] .got              PROGBITS        080e8190 0a0190 000008 04  WA  0   0  4
+  [23] .got.plt          PROGBITS        080e8198 0a0198 000044 04  WA  0   0  4
+  [24] .data             PROGBITS        080e81e0 0a01e0 000f20 00  WA  0   0 32
+  [25] .bss              NOBITS          080e9100 0a1100 000e0c 00  WA  0   0 32
+  [26] __libc_freeres_pt NOBITS          080e9f0c 0a1100 000018 00  WA  0   0  4
+  [27] .comment          PROGBITS        00000000 0a1100 000035 01  MS  0   0  1
+  [28] .shstrtab         STRTAB          00000000 0afc2e 00014c 00      0   0  1
+  [29] .symtab           SYMTAB          00000000 0a1138 007e20 10     30 847  4
+  [30] .strtab           STRTAB          00000000 0a8f58 006cd6 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings)
+  I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
+  O (extra OS processing required) o (OS specific), p (processor specific)
+
+=> .text section에 WAX로 write permission이 추가되어 있음을 확인할 수 있다.
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gdb -q ./asm_shell_x86_intel
+Reading symbols from ./asm_shell_x86_intel...(no debugging symbols found)...done.
+(gdb) start
+Temporary breakpoint 1 at 0x804883f
+Starting program: /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel 
+
+Temporary breakpoint 1, 0x0804883f in main ()
+(gdb) shell ps -a
+  PID TTY          TIME CMD
+ 9209 pts/2    00:00:00 gdb
+ 9218 pts/2    00:00:00 asm_shell_x86_i
+ 9222 pts/2    00:00:00 ps
+(gdb) shell cat /proc/9218/maps
+08048000-080ea000 rwxp 00000000 103:07 1835682                           /home/guybrush/Project/github/hack/shellcode/step1/x86/asm_shell_x86_intel
+080ea000-0810c000 rw-p 00000000 00:00 0                                  [heap]
+f7ff9000-f7ffc000 r--p 00000000 00:00 0                                  [vvar]
+f7ffc000-f7ffe000 r-xp 00000000 00:00 0                                  [vdso]
+fffdd000-ffffe000 rw-p 00000000 00:00 0                                  [stack]
+(gdb) 
+
+=> gdb를 통해 실행 후 memory map을 확인한 결과, code section에 write permission이 붙어 정상적으로 shell이 실행되는 것을 확인할 수 있다.(rwxp)
+
+=> 실행결과 code section에 write를 수행하지만, shell이 정상적으로 수행된다.
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ gcc -o asm_shell_x86_intel asm_shell_x86_intel.c -m32 -masm=intel -fno-stack-protector -mpreferred-stack-boundary=2 -static -Wl,--omagic
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ ./asm_shell_x86_intel 
+$ echo $$
+10869
+$ exit
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ echo $$
+3416
+guybrush@nt900x5t:~/Project/github/hack/shellcode/step1/x86$ 
+
+
+
+* 기본적으로 code section은 모두 write permission이 없으므로 위의 shell code는 정상적으로 사용하기가 어렵다.
+  이 문제를 해결하려면 어떻게 해야할까?
+
+
+
+
+
 
 

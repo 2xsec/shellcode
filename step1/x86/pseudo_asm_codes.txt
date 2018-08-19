@@ -1,0 +1,88 @@
+* pseudo codes for shell assembly
+
+-- execve 호출 시 사용할 파라미터 준비 단계
+
+1. mov "/bin/sh 문자열 바로 다음 주소", 0x0;
+   => assembly code에서 string /bin/sh 다음에 null byte를 자동으로 생성해 주지 않기 때문에, null byte를 추가해 주기 위해 /bin/sh 문자열 바로 다음 주소를 알아야 한다.
+
+2. mov "execve() 2번째 파라미터인 name[0]의 주소", "/bin/sh\0 문자열 시작 주소";
+   => execve() 호출 시 참조할 2번째 파라미터 name[0] 배열의 값 저장
+
+3. mov "execve() 2번째 파라미터인 name[1]의 주소", 0x0;
+   => execve() 호출 시 참조할 2번째 파라미터 name[1] 배열의 값 저장
+
+-- system call(execve) 호출 준비
+
+4. mov eax, 0xb;
+   => system call number (execve : 11)
+
+5. mov ebx, "/bin/sh 주소";
+   => ebx는 system call(execve() 첫번째 파라미터 주소)의 첫번째 파라미터로 사용
+
+6. lea ecx, "name[0]의 주소";
+   => ecx는 system call의 두번째 파라미터로 사용
+   => execve()의 두번째 파라미터인 name[0]의 주소 저장
+
+7. mov edx, 0x0;
+   => edx는 system call의 세번째 파라미터로 사용
+   => execve()의 세번째 파라미터로 0 값 저장
+
+8. int 0x80;
+   => system call 호출
+
+9. mov eax, 0x1;
+   => exit()의 system call number 저장(exit : 1)
+
+10.mov ebx, 0x0;
+   => exit()의 첫번째 파라미터 값으로 0 저장(exit(0))
+
+11. int 0x80;
+   => system call 호출
+
+12. .string "/bin/sh"
+   => execve() 호출 시 사용할 shell string
+
+
+=> 위의 shell code를 완성하기 위해서는 /bin/sh 문자열의 주소를 알아야 하는데, 어떻게 주소를 알아낼 수 있을까?
+
+1. /bin/sh 문자열 시작주소 앞에 임의의 Label(.LC0)을 설정하고, esi 레지스터에 이 Label의 값을 저장한다.
+2. 그러면, code 실행 시 마다 Label .LC0 값이 esi 레지스터에 저장되고, esi 레지스터 값을 참조하면 /bin/sh 문자열의 주소를 참조할 수 있게 된다.
+3. 절대 주소없이 instruction이 순서대로 잘 실행되도록 하기 위해 esi 레지스터를 사용한다.(?)
+
+=> 적용된 code
+
+1. mov esi, offset .LC0;
+   => /bin/sh 문자열 주소를 가리키는 .LC0 label 값을 esi 레지스터에 저장
+   => 이후부터 esi 레지스터 값을 통해 /bin/sh 문자열 주소를 참조할 수 있게 됨
+
+2. mov BYTE PTR [esi+0x7], 0x0;
+   => /bin/sh 길이가 7이므로, esi 주소로부터 7만큼 더 하면 null byte 삽입 위치를 정확하게 알 수 있다.
+
+3. mov DWORD PTR [esi+0x8], esi;
+   => execve() 두번째 파라미터인 name[0] 이용을 위해, /bin/sh\0 바로 다음 주소에(esi + 0x8), /bin/sh 주소(4바이트)를 넣어주고 이를 name[0]으로 이용한다.
+ 
+4. mov DWORD PTR [esi+0xc], 0x0;
+   => execve() 두번째 파라미터인 name[1] 이용을 위해, name[0] 값 다음에(esi + 0xc) 0값(4바이트)을 넣어주고 이를 name[1]로 이용한다.
+
+5. mov eax, 0xb;
+   => eax : system call number
+
+6. mov ebx, esi;
+   => ebx : execve() 1st parameter("/bin/sh" 주소 == esi 레지스터 값)
+
+7. lea ecx, DWORD PTR [esi+0x8];
+   => ecx : execve() 2nd parameter(name[0] 주소 == esi + 0x8)
+   => 주소 값이 위치하는 메모리상의 주소가 두번째 파라미터이므로 lea 명령 이용
+
+8. mov edx, 0x0;
+   => edx : execve() 3rd parameter
+
+int 0x80;
+mov eax, 0x1;
+mov ebx, 0x0;
+int 0x80;
+
+14. .LC0: .string "/bin/sh"
+    => /bin/sh 문자열에 label 설정
+
+
