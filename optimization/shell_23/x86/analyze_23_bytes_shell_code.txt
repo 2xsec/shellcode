@@ -1,0 +1,63 @@
+* 23 bytes shell code 생성
+
+1. xor %eax, %eax;
+   => xor 연산을 이용해 eax 레지스터의 값을 0으로 설정
+
+2. push %eax;
+   => stack에 eax의 값인 0을 push
+   (생성된 shell code에서 코드값이 0인 경우가 발생하는 것을 없애면서도 0값을 사용하기 위한 방안)
+
+3. push $0x68732f2f;
+   => stack에 //sh 4bytes push(bytes order에 의해 거꾸로 저장 - hs//)
+   => stack의 4bytes를 맞추기 위해 /를 임의로 하나 더 추가함. /와 //는 동일하게 동작
+
+4. push $0x6e69622f;
+   => stack에 /bin 4bytes push(byte order에 의해 거꾸로 저장 - nib/)
+   => 3,4 에서 push 된 /bin//sh 문자열은 execve() system call의 첫번째 파라미터로 사용
+
+5. mov %esp, %ebx;
+   => 현재 위치, 즉, stack에서 방금 push 한 /bin//sh 문자열의 시작주소가 esp에 저장되어 있으므로,
+      ebx 레지스터에 문자열 주소 저장
+   => 즉, execve의 첫번째 파라미터(%ebx) 값인 /bin/sh의 문자열 시작주소 저장
+      ex) char *shell = "/bin/sh"; execve(shell, );
+
+6. mov %eax, %ecx;
+   mov %eax, %edx;
+   => 23 bytes shell code의 main idea는 기존 execve() system call의 두번째 파라미터를 NULL로 입력하여 code의 bytes 수를 줄이는 것이므로,
+      execve() 두번째, 세번째 파라미터로 사용되는 ecx, edx 레지스터의 값을 null로 설정한다.
+   => 하지만, 일부 system에서 두번째 파라미터가 null일 경우 정상적으로 동작하지 않을 가능성도 있다.
+      On Linux, argv can be specified as NULL, which has the same effect as specifying this argument as a pointer to a list containing a single NULL pointer.
+      Do not take advantage of this misfeature! It is nonstandard and nonportable: on most other UNIX systems doing this will result in an error (EFAULT).
+      (https://linux.die.net/man/2/execve)
+
+7. mov $0xb, %al;
+   => 32bit machine에서 execve() system call을 호출하기 위해 system call number 0xb(11)을 eax 레지스터에 저장한다.
+   => eax 레지스터에 저장할 경우 0xb 저장 후 나머지 3bytes 값은 0으로 저장되어 shell code에 0값이 생성되므로,
+      1 byte 사용을 위해 al 레지스터에 system call number 0xb를 저장한다.
+
+8. int $0x80;
+   => system call 호출
+
+
+
+
+
+* stack 및 register 의 값
+
+%eax = 0
+
+-------------------------- start esp
+0(%eax)
+--------------------------
+0x68732f2f(hs//)
+-------------------------- => %ebx(문자열 /bin//sh 의 시작주소)
+0x6e69622f(nib/)
+--------------------------
+
+
+
+%ecx = 0
+%edx = 0
+%al = 0xb
+
+
